@@ -9,6 +9,7 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="https://img.icons8.com/color/192/sun.png">
   
+  <!-- LEAFLET MAPS CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   
   <style>
@@ -144,13 +145,13 @@
 
     <!-- TRAMWAJE (POZNAŃ) -->
     <div class="card">
-      <h2 class="section-title">Odjazdy (Poznań PEKA)</h2>
+      <h2 class="section-title">Odjazdy na żywo (ZTM PEKA)</h2>
       <div style="display: flex; gap: 8px; margin-bottom: 15px;">
         <button class="btn" id="btn-cyryl" style="flex: 1;" onclick="loadTrams('cyryl', this)">Pl. C. Ratajskiego</button>
         <button class="btn" id="btn-grudnia" style="flex: 1; background: #8e8e93;" onclick="loadTrams('grudnia', this)">27 Grudnia</button>
       </div>
       <ul id="trams-list" class="trams-list">
-        <li style="text-align:center; color:#666; margin-top: 20px;">Wybierz przystanek, aby załadować...</li>
+        <li style="text-align:center; color:#666; margin-top: 20px;">Wybierz przystanek...</li>
       </ul>
     </div>
   </div>
@@ -158,6 +159,7 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script>
+    // Inicjalizacja PWA (Service Worker)
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(()=>{}); });
     }
@@ -184,7 +186,7 @@
       if (code >= 95) return 'Burza'; return 'Nieznana';
     }
 
-    /* --- LOKALIZACJA GPS --- */
+    /* --- LOKALIZACJA GPS (Optymalny zoom) --- */
     function useGPS() {
       if (navigator.geolocation) {
         document.getElementById('weather-title-text').innerText = "Szukanie lokalizacji...";
@@ -193,14 +195,13 @@
           weatherLon = position.coords.longitude;
           
           try {
-             // Próba pobrania nazwy miejscowości na podstawie GPS
              const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${weatherLat}&lon=${weatherLon}`);
              const data = await res.json();
              document.getElementById('weather-title-text').innerText = data.address.city || data.address.town || data.address.village || "Twoja lokalizacja";
           } catch(e) { document.getElementById('weather-title-text').innerText = "Twoja lokalizacja"; }
           
           if(window.radarMap) { 
-             window.radarMap.setView([weatherLat, weatherLon], 8); 
+             window.radarMap.setView([weatherLat, weatherLon], 6); 
              updateUserLocationMarker();
           }
           fetchWeather();
@@ -218,7 +219,7 @@
           weatherLat = data.results[0].latitude; weatherLon = data.results[0].longitude; 
           document.getElementById('weather-title-text').innerText = data.results[0].name;
           input.value = ''; input.blur();
-          if(window.radarMap) { window.radarMap.setView([weatherLat, weatherLon], 8); updateUserLocationMarker(); }
+          if(window.radarMap) { window.radarMap.setView([weatherLat, weatherLon], 6); updateUserLocationMarker(); }
           fetchWeather();
         } else alert('Nie znaleziono takiego miasta.'); 
       } catch(e) { alert('Błąd sieci.'); }
@@ -226,7 +227,7 @@
     
     document.getElementById('weather-city-input').addEventListener('keypress', e => { if (e.key === 'Enter') window.saveWeatherSettings(); });
 
-    /* --- POGODA --- */
+    /* --- PRAWZIWA POGODA Z API OPEN-METEO --- */
     window.fetchWeather = async function() { 
       try { 
         const url = `https://api.open-meteo.com/v1/forecast?latitude=${weatherLat}&longitude=${weatherLon}&current=temperature_2m,windspeed_10m,weathercode,relative_humidity_2m,surface_pressure&hourly=temperature_2m,weathercode,precipitation_probability,precipitation&daily=weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_sum,precipitation_probability_max&timezone=Europe%2FWarsaw&past_days=0&forecast_days=8`;
@@ -239,10 +240,11 @@
         document.getElementById('weather-icon-main').src = getWeatherIconUrl(data.current.weathercode);
         document.getElementById('weather-desc').innerText = getWeatherDesc(data.current.weathercode);
 
+        // Alerty meteorologiczne na podstawie odczytów
         let alerts = [];
         if (data.current.windspeed_10m >= 70) alerts.push(`⚠️ Silny wiatr (${Math.round(data.current.windspeed_10m)} km/h)`);
-        if (data.current.weathercode >= 95) alerts.push(`⚡ Możliwe burze!`);
-        if (data.daily.temperature_2m_max[0] >= 30) alerts.push(`🌡️ Upał! Ponad 30°C.`);
+        if (data.current.weathercode >= 95) alerts.push(`⚡ Możliwe burze i wyładowania!`);
+        if (data.daily.temperature_2m_max[0] >= 30) alerts.push(`🌡️ Upał! Prognozowane ponad 30°C.`);
         if (data.daily.temperature_2m_min[0] <= -10) alerts.push(`❄️ Uwaga na silny mróz!`);
         
         const alertBanner = document.getElementById('weather-alerts');
@@ -275,6 +277,7 @@
             </div>`;
         }
 
+        // Prawdziwa Jakość Powietrza
         try {
            const aqiData = await (await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${weatherLat}&longitude=${weatherLon}&current=european_aqi,pm2_5`)).json();
            const aqi = aqiData.current.european_aqi; let aqiColor = '#34c759'; let aqiDesc = 'Dobra';
@@ -286,7 +289,7 @@
       } catch (error) {} 
     };
 
-    /* --- RADAR MAP --- */
+    /* --- PRAWDZIWY RADAR OPADÓW Z PROGNOZĄ (RAINVIEWER) --- */
     window.radarMap = null; let radarTileLayer = null; let radarFrames = []; let pastCount = 0; let currentFrameIndex = 0; let radarInterval = null; let radarApiHost = ""; let userMarker = null;
 
     function updateUserLocationMarker() {
@@ -298,7 +301,7 @@
 
     async function initLeafletRadar() {
       if (!window.radarMap) {
-        window.radarMap = L.map('leaflet-radar', { zoomControl: false, attributionControl: false, maxZoom: 10, minZoom: 4, scrollWheelZoom: false }).setView([weatherLat, weatherLon], 8);
+        window.radarMap = L.map('leaflet-radar', { zoomControl: false, attributionControl: false, maxZoom: 10, minZoom: 4, scrollWheelZoom: false }).setView([weatherLat, weatherLon], 6);
         L.control.zoom({ position: 'topright' }).addTo(window.radarMap);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {maxZoom: 18}).addTo(window.radarMap);
         updateUserLocationMarker();
@@ -309,26 +312,46 @@
     async function loadRainViewerData() {
       try {
         const data = await (await fetch('https://api.rainviewer.com/public/weather-maps.json')).json();
-        radarApiHost = data.host; pastCount = (data.radar.past || []).length;
-        radarFrames = [...(data.radar.past || []), ...(data.radar.nowcast || [])];
+        radarApiHost = data.host; 
+        
+        // Zbieramy zarówno historię (past) jak i wyliczaną na przyszłość prognozę (nowcast)
+        const past = data.radar.past || [];
+        const nowcast = data.radar.nowcast || [];
+        pastCount = past.length;
+        
+        radarFrames = [...past, ...nowcast];
+        
         if (radarFrames.length > 0) {
-          const slider = document.getElementById('radar-slider'); slider.max = radarFrames.length - 1;
-          currentFrameIndex = pastCount > 0 ? pastCount - 1 : 0; slider.value = currentFrameIndex;
+          const slider = document.getElementById('radar-slider'); 
+          slider.max = radarFrames.length - 1;
+          currentFrameIndex = pastCount > 0 ? pastCount - 1 : 0; 
+          slider.value = currentFrameIndex;
           showRadarFrame(currentFrameIndex);
         }
       } catch(e) { document.getElementById('radar-time-text').innerText = 'Brak połączenia'; }
     }
 
     function showRadarFrame(index) {
-      if (!radarFrames[index]) return; currentFrameIndex = index;
+      if (!radarFrames[index]) return; 
+      currentFrameIndex = index;
       const frame = radarFrames[index];
+      
       document.getElementById('radar-time-text').innerText = new Date(frame.time * 1000).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
       const diff = Math.round(((frame.time * 1000) - Date.now()) / 60000);
       const tag = document.getElementById('radar-type-tag');
       
-      if (index > pastCount - 1) { tag.innerText = `[PROGNOZA NA ZA ${diff} min]`; tag.style.color = '#0a7aff'; }
-      else if (index === pastCount - 1) { tag.innerText = '[TERAZ]'; tag.style.color = '#34c759'; }
-      else { tag.innerText = `[HISTORIA sprzed ${Math.abs(diff)} min]`; tag.style.color = '#8e8e93'; }
+      if (index >= pastCount) { 
+          tag.innerText = `[PROGNOZA NA ZA ${diff} min]`; 
+          tag.style.color = '#0a7aff'; 
+      }
+      else if (index === pastCount - 1) { 
+          tag.innerText = '[TERAZ]'; 
+          tag.style.color = '#34c759'; 
+      }
+      else { 
+          tag.innerText = `[HISTORIA sprzed ${Math.abs(diff)} min]`; 
+          tag.style.color = '#8e8e93'; 
+      }
 
       if (radarTileLayer) window.radarMap.removeLayer(radarTileLayer);
       radarTileLayer = L.tileLayer(`${radarApiHost}${frame.path}/256/{z}/{x}/{y}/2/1_1.png`, { opacity: 0.85, zIndex: 500 }).addTo(window.radarMap);
@@ -340,63 +363,69 @@
     window.toggleRadarPlay = () => { if (radarInterval) stopRadarPlay(); else { document.getElementById('btn-radar-play').innerText = '❚❚ Pauza'; radarInterval = setInterval(() => { let n = currentFrameIndex + 1; if (n >= radarFrames.length) n = 0; showRadarFrame(n); }, 600); } };
     function stopRadarPlay() { if (radarInterval) { clearInterval(radarInterval); radarInterval = null; document.getElementById('btn-radar-play').innerText = '▶ Play'; } }
 
-    /* --- TRAMWAJE POZNAŃ (PEKA) --- */
+    /* --- PRAWDZIWE TRAMWAJE POZNAŃ (WIRTUALNY MONITOR PEKA) --- */
     window.loadTrams = async function(stopType, btnElement) {
-      // Ustawienie aktywnych przycisków
       document.getElementById('btn-cyryl').style.background = '#8e8e93';
       document.getElementById('btn-grudnia').style.background = '#8e8e93';
       btnElement.style.background = 'var(--accent)';
       
       const list = document.getElementById('trams-list');
-      list.innerHTML = '<li style="text-align:center; margin-top:20px;">Łączenie z systemem PEKA...</li>';
+      list.innerHTML = '<li style="text-align:center; margin-top:20px; color: #666;">Pobieranie prawdziwych danych (ZTM)...</li>';
       
-      // Symbol przystanku z bazy PEKA (symbole przybliżone do kierunków)
-      const symbol = (stopType === 'cyryl') ? 'CRAT71' : '27GR71'; 
+      // Oficjalne symbole przystanków ZTM PEKA dla OBU KIERUNKÓW:
+      // CRAT71, CRAT72 (Plac Cyryla Ratajskiego)
+      // 27GR71, 27GR72 (27 Grudnia)
+      const symbols = (stopType === 'cyryl') ? ['CRAT71', 'CRAT72'] : ['27GR71', '27GR72'];
+      let allTimes = [];
       
       try {
-        const formData = new URLSearchParams();
-        formData.append('method', 'getTimes');
-        formData.append('p0', JSON.stringify({symbol: symbol}));
+        for (let symbol of symbols) {
+          const formData = new URLSearchParams();
+          formData.append('method', 'getTimes');
+          formData.append('p0', JSON.stringify({symbol: symbol}));
+          
+          // Używamy darmowego serwera Proxy (corsproxy.io) aby obejść restrykcje bezpieczeństwa (CORS) systemu PEKA
+          const pekaUrl = 'https://www.peka.poznan.pl/vm/method.vm?ts=' + Date.now();
+          const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(pekaUrl);
+          
+          const res = await fetch(proxyUrl, {
+            method: 'POST', body: formData, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+          });
+          const data = await res.json();
+          
+          if (data && data.success && data.success.times) {
+            allTimes = allTimes.concat(data.success.times);
+          }
+        }
         
-        const res = await fetch('https://www.peka.poznan.pl/vm/method.vm?ts=' + Date.now(), {
-          method: 'POST', body: formData, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-        });
-        const data = await res.json();
-        
-        if (data && data.success && data.success.times && data.success.times.length > 0) {
+        if (allTimes.length > 0) {
+          // Sortowanie czasów ze wszystkich kierunków jazdy od najszybszego
+          allTimes.sort((a,b) => a.minutes - b.minutes);
           list.innerHTML = '';
-          data.success.times.slice(0, 6).forEach(t => {
+          
+          // Pokaż 8 najbliższych, prawdziwych odjazdów
+          allTimes.slice(0, 8).forEach(t => {
             const min = t.minutes === 0 ? '>>>' : `${t.minutes} min`;
             list.innerHTML += `<li class="trams-item">
               <div><span class="trams-line">${t.line}</span> ${t.direction}</div>
               <span class="trams-time">${min}</span>
             </li>`;
           });
-        } else { throw new Error("Brak"); }
-      } catch(e) {
-        // Fallback: Inteligentny symulator, gdy PEKA blokuje przeglądarki (CORS)
-        list.innerHTML = '';
-        const linesCyryl = [ {l: '9', d: 'Dębiec PKM'}, {l: '15', d: 'Os. Sobieskiego'}, {l: '16', d: 'Franowo'} ];
-        const linesGrudnia = [ {l: '2', d: 'Dębiec PKM'}, {l: '9', d: 'Piątkowska'}, {l: '16', d: 'Os. Sobieskiego'} ];
-        const pool = stopType === 'cyryl' ? linesCyryl : linesGrudnia;
-        
-        let mockDeps = [];
-        for(let i=0; i<5; i++) {
-            let tr = pool[Math.floor(Math.random() * pool.length)];
-            mockDeps.push({ line: tr.l, dir: tr.d, min: Math.floor(Math.random() * 20) });
+        } else {
+          list.innerHTML = '<li style="text-align:center; color:#d32f2f; margin-top:20px;">Brak aktualnych odjazdów z tego przystanku.</li>';
         }
-        mockDeps.sort((a,b) => a.min - b.min);
-        
-        mockDeps.forEach(t => {
-          list.innerHTML += `<li class="trams-item">
-            <div><span class="trams-line">${t.line}</span> ${t.dir}</div>
-            <span class="trams-time">${t.min === 0 ? '>>>' : t.min + ' min'}</span>
-          </li>`;
-        });
+      } catch(e) {
+        list.innerHTML = '<li style="text-align:center; color:#d32f2f; margin-top:20px; line-height: 1.5;">Błąd łączenia z systemem PEKA.<br>Odśwież stronę lub spróbuj ponownie.</li>';
       }
     };
 
-    window.onload = () => { fetchWeather(); initLeafletRadar(); setTimeout(() => loadTrams('cyryl', document.getElementById('btn-cyryl')), 1000); setInterval(fetchWeather, 900000); };
+    window.onload = () => { 
+        fetchWeather(); 
+        initLeafletRadar(); 
+        // Automatycznie wczytuje rzeczywiste odjazdy z Cyryla po wejściu w apkę
+        setTimeout(() => loadTrams('cyryl', document.getElementById('btn-cyryl')), 500); 
+        setInterval(fetchWeather, 900000); 
+    };
   </script>
 </body>
 </html>
