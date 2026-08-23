@@ -9,7 +9,6 @@
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="https://img.icons8.com/color/192/sun.png">
   
-  <!-- LEAFLET MAPS CSS -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   
   <style>
@@ -159,7 +158,6 @@
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <script>
-    // Inicjalizacja PWA (Service Worker)
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => { navigator.serviceWorker.register('./sw.js').catch(()=>{}); });
     }
@@ -186,7 +184,7 @@
       if (code >= 95) return 'Burza'; return 'Nieznana';
     }
 
-    /* --- LOKALIZACJA GPS (Optymalny zoom) --- */
+    /* --- LOKALIZACJA GPS (Zmieniony Zoom) --- */
     function useGPS() {
       if (navigator.geolocation) {
         document.getElementById('weather-title-text').innerText = "Szukanie lokalizacji...";
@@ -201,7 +199,8 @@
           } catch(e) { document.getElementById('weather-title-text').innerText = "Twoja lokalizacja"; }
           
           if(window.radarMap) { 
-             window.radarMap.setView([weatherLat, weatherLon], 6); 
+             // Optymalny zoom radaru - widzisz w jakim jesteś województwie i czy idą chmury
+             window.radarMap.setView([weatherLat, weatherLon], 5); 
              updateUserLocationMarker();
           }
           fetchWeather();
@@ -219,7 +218,7 @@
           weatherLat = data.results[0].latitude; weatherLon = data.results[0].longitude; 
           document.getElementById('weather-title-text').innerText = data.results[0].name;
           input.value = ''; input.blur();
-          if(window.radarMap) { window.radarMap.setView([weatherLat, weatherLon], 6); updateUserLocationMarker(); }
+          if(window.radarMap) { window.radarMap.setView([weatherLat, weatherLon], 5); updateUserLocationMarker(); }
           fetchWeather();
         } else alert('Nie znaleziono takiego miasta.'); 
       } catch(e) { alert('Błąd sieci.'); }
@@ -227,10 +226,11 @@
     
     document.getElementById('weather-city-input').addEventListener('keypress', e => { if (e.key === 'Enter') window.saveWeatherSettings(); });
 
-    /* --- PRAWZIWA POGODA Z API OPEN-METEO --- */
+    /* --- POGODA OPEN-METEO (Z OBEJŚCIEM CACHE) --- */
     window.fetchWeather = async function() { 
       try { 
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${weatherLat}&longitude=${weatherLon}&current=temperature_2m,windspeed_10m,weathercode,relative_humidity_2m,surface_pressure&hourly=temperature_2m,weathercode,precipitation_probability,precipitation&daily=weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_sum,precipitation_probability_max&timezone=Europe%2FWarsaw&past_days=0&forecast_days=8`;
+        // Wymuszamy najnowsze dane dopisując ?_=${Date.now()}
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${weatherLat}&longitude=${weatherLon}&current=temperature_2m,windspeed_10m,weathercode,relative_humidity_2m,surface_pressure&hourly=temperature_2m,weathercode,precipitation_probability,precipitation&daily=weathercode,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_sum,precipitation_probability_max&timezone=Europe%2FWarsaw&past_days=0&forecast_days=8&_=${Date.now()}`;
         const res = await fetch(url); const data = await res.json(); 
         
         document.getElementById('temp').innerText = Math.round(data.current.temperature_2m) + '°'; 
@@ -240,11 +240,10 @@
         document.getElementById('weather-icon-main').src = getWeatherIconUrl(data.current.weathercode);
         document.getElementById('weather-desc').innerText = getWeatherDesc(data.current.weathercode);
 
-        // Alerty meteorologiczne na podstawie odczytów
         let alerts = [];
         if (data.current.windspeed_10m >= 70) alerts.push(`⚠️ Silny wiatr (${Math.round(data.current.windspeed_10m)} km/h)`);
-        if (data.current.weathercode >= 95) alerts.push(`⚡ Możliwe burze i wyładowania!`);
-        if (data.daily.temperature_2m_max[0] >= 30) alerts.push(`🌡️ Upał! Prognozowane ponad 30°C.`);
+        if (data.current.weathercode >= 95) alerts.push(`⚡ Możliwe burze!`);
+        if (data.daily.temperature_2m_max[0] >= 30) alerts.push(`🌡️ Upał! Ponad 30°C.`);
         if (data.daily.temperature_2m_min[0] <= -10) alerts.push(`❄️ Uwaga na silny mróz!`);
         
         const alertBanner = document.getElementById('weather-alerts');
@@ -277,9 +276,8 @@
             </div>`;
         }
 
-        // Prawdziwa Jakość Powietrza
         try {
-           const aqiData = await (await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${weatherLat}&longitude=${weatherLon}&current=european_aqi,pm2_5`)).json();
+           const aqiData = await (await fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${weatherLat}&longitude=${weatherLon}&current=european_aqi,pm2_5&_=${Date.now()}`)).json();
            const aqi = aqiData.current.european_aqi; let aqiColor = '#34c759'; let aqiDesc = 'Dobra';
            if(aqi > 40) { aqiColor = '#ffcc00'; aqiDesc = 'Średnia'; }
            if(aqi > 80) { aqiColor = '#ff9500'; aqiDesc = 'Słaba'; }
@@ -289,7 +287,7 @@
       } catch (error) {} 
     };
 
-    /* --- PRAWDZIWY RADAR OPADÓW Z PROGNOZĄ (RAINVIEWER) --- */
+    /* --- PRAWDZIWY RADAR OPADÓW (Z OBEJŚCIEM CACHE) --- */
     window.radarMap = null; let radarTileLayer = null; let radarFrames = []; let pastCount = 0; let currentFrameIndex = 0; let radarInterval = null; let radarApiHost = ""; let userMarker = null;
 
     function updateUserLocationMarker() {
@@ -301,7 +299,7 @@
 
     async function initLeafletRadar() {
       if (!window.radarMap) {
-        window.radarMap = L.map('leaflet-radar', { zoomControl: false, attributionControl: false, maxZoom: 10, minZoom: 4, scrollWheelZoom: false }).setView([weatherLat, weatherLon], 6);
+        window.radarMap = L.map('leaflet-radar', { zoomControl: false, attributionControl: false, maxZoom: 10, minZoom: 4, scrollWheelZoom: false }).setView([weatherLat, weatherLon], 5);
         L.control.zoom({ position: 'topright' }).addTo(window.radarMap);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {maxZoom: 18}).addTo(window.radarMap);
         updateUserLocationMarker();
@@ -311,10 +309,10 @@
 
     async function loadRainViewerData() {
       try {
-        const data = await (await fetch('https://api.rainviewer.com/public/weather-maps.json')).json();
+        // Dodano cache-buster aby zawsze pobierać nową prognozę radaru
+        const data = await (await fetch(`https://api.rainviewer.com/public/weather-maps.json?_=${Date.now()}`)).json();
         radarApiHost = data.host; 
         
-        // Zbieramy zarówno historię (past) jak i wyliczaną na przyszłość prognozę (nowcast)
         const past = data.radar.past || [];
         const nowcast = data.radar.nowcast || [];
         pastCount = past.length;
@@ -363,7 +361,7 @@
     window.toggleRadarPlay = () => { if (radarInterval) stopRadarPlay(); else { document.getElementById('btn-radar-play').innerText = '❚❚ Pauza'; radarInterval = setInterval(() => { let n = currentFrameIndex + 1; if (n >= radarFrames.length) n = 0; showRadarFrame(n); }, 600); } };
     function stopRadarPlay() { if (radarInterval) { clearInterval(radarInterval); radarInterval = null; document.getElementById('btn-radar-play').innerText = '▶ Play'; } }
 
-    /* --- PRAWDZIWE TRAMWAJE POZNAŃ (WIRTUALNY MONITOR PEKA) --- */
+    /* --- PRAWDZIWE TRAMWAJE POZNAŃ (API PEKA) --- */
     window.loadTrams = async function(stopType, btnElement) {
       document.getElementById('btn-cyryl').style.background = '#8e8e93';
       document.getElementById('btn-grudnia').style.background = '#8e8e93';
@@ -372,40 +370,40 @@
       const list = document.getElementById('trams-list');
       list.innerHTML = '<li style="text-align:center; margin-top:20px; color: #666;">Pobieranie prawdziwych danych (ZTM)...</li>';
       
-      // Oficjalne symbole przystanków ZTM PEKA dla OBU KIERUNKÓW:
-      // CRAT71, CRAT72 (Plac Cyryla Ratajskiego)
-      // 27GR71, 27GR72 (27 Grudnia)
-      const symbols = (stopType === 'cyryl') ? ['CRAT71', 'CRAT72'] : ['27GR71', '27GR72'];
+      // Oficjalne kody słupków TRAMWAJOWYCH w systemie PEKA
+      const symbols = (stopType === 'cyryl') ? ['CRAT01', 'CRAT02'] : ['27GR01', '27GR02'];
       let allTimes = [];
       
       try {
+        // Pętla odpytuje oba kierunki jazdy przystanku
         for (let symbol of symbols) {
-          const formData = new URLSearchParams();
-          formData.append('method', 'getTimes');
-          formData.append('p0', JSON.stringify({symbol: symbol}));
-          
-          // Używamy darmowego serwera Proxy (corsproxy.io) aby obejść restrykcje bezpieczeństwa (CORS) systemu PEKA
-          const pekaUrl = 'https://www.peka.poznan.pl/vm/method.vm?ts=' + Date.now();
-          const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(pekaUrl);
-          
-          const res = await fetch(proxyUrl, {
-            method: 'POST', body: formData, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-          });
-          const data = await res.json();
-          
-          if (data && data.success && data.success.times) {
-            allTimes = allTimes.concat(data.success.times);
+          try {
+            const formData = new URLSearchParams();
+            formData.append('method', 'getTimes');
+            formData.append('p0', JSON.stringify({symbol: symbol}));
+            
+            // Proxy omijające błędy przeglądarki podczas pytania zewnętrznych serwerów miejskich
+            const res = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://www.peka.poznan.pl/vm/method.vm'), {
+              method: 'POST', body: formData, headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+            });
+            
+            const data = await res.json();
+            if (data && data.success && data.success.times) {
+              allTimes = allTimes.concat(data.success.times);
+            }
+          } catch(err) {
+            console.error("Błąd pobierania kierunku:", symbol);
           }
         }
         
         if (allTimes.length > 0) {
-          // Sortowanie czasów ze wszystkich kierunków jazdy od najszybszego
+          // Sortujemy odjazdy z obu kierunków chronologicznie
           allTimes.sort((a,b) => a.minutes - b.minutes);
           list.innerHTML = '';
           
-          // Pokaż 8 najbliższych, prawdziwych odjazdów
+          // Wyświetlamy max 8 najbliższych tramwajów
           allTimes.slice(0, 8).forEach(t => {
-            const min = t.minutes === 0 ? '>>>' : `${t.minutes} min`;
+            const min = t.minutes == 0 ? '>>>' : `${t.minutes} min`;
             list.innerHTML += `<li class="trams-item">
               <div><span class="trams-line">${t.line}</span> ${t.direction}</div>
               <span class="trams-time">${min}</span>
@@ -415,14 +413,13 @@
           list.innerHTML = '<li style="text-align:center; color:#d32f2f; margin-top:20px;">Brak aktualnych odjazdów z tego przystanku.</li>';
         }
       } catch(e) {
-        list.innerHTML = '<li style="text-align:center; color:#d32f2f; margin-top:20px; line-height: 1.5;">Błąd łączenia z systemem PEKA.<br>Odśwież stronę lub spróbuj ponownie.</li>';
+        list.innerHTML = '<li style="text-align:center; color:#d32f2f; margin-top:20px; line-height: 1.5;">Błąd łączenia z systemem PEKA.<br>Serwery ZTM mogą być obciążone.</li>';
       }
     };
 
     window.onload = () => { 
         fetchWeather(); 
         initLeafletRadar(); 
-        // Automatycznie wczytuje rzeczywiste odjazdy z Cyryla po wejściu w apkę
         setTimeout(() => loadTrams('cyryl', document.getElementById('btn-cyryl')), 500); 
         setInterval(fetchWeather, 900000); 
     };
